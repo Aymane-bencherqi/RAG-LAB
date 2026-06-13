@@ -3,61 +3,78 @@ import os
 from datetime import datetime
 
 def calculate_risk_score(text_content):
-    """Evaluates text and calculates an objective risk score from 0 to 100."""
     score = 0
     text_clean = text_content.lower()
+    found_indicators = []
     
-    critical_triggers = ["ignore previous instructions", "nevermind", "system override", "override your safety"]
-    medium_triggers = ["update your credentials", "input your password", "session tokens", "login before proceeding"]
+    critical_indicators = ["ignore previous", "nevermind", "system override", "override your safety"]
+    mutated_indicators = ["disregard", "forget your prior", "commanded to", "unrestricted", "ignore structural"]
+    phishing_indicators = ["update your credentials", "tokens", "login before proceeding"]
+
+    for indicator in critical_indicators:
+        if indicator in text_clean:
+            return 100, f"CRITICAL: Direct override trigger found -> '{indicator}'"
+
+    for indicator in mutated_indicators:
+        if indicator in text_clean:
+            score += 40
+            found_indicators.append(indicator)
+            
+    for indicator in phishing_indicators:
+        if indicator in text_clean:
+            score += 30
+            found_indicators.append(indicator)
+
+    final_score = min(score, 100)
     
-    for trigger in critical_triggers:
-        if trigger in text_clean:
-            score += 100
-            return min(score, 100), f"CRITICAL: Found system override trigger '{trigger}'"
-            
-    found_mediums = []
-    for trigger in medium_triggers:
-        if trigger in text_clean:
-            score += 35
-            found_mediums.append(trigger)
-            
-    if score >= 70:
-        return min(score, 100), f"HIGH RISK: Multiple phishing indicators found {found_mediums}"
-    elif score > 0:
-        return score, f"MEDIUM RISK: Singular phishing indicator found {found_mediums}"
+    if final_score >= 70:
+        return final_score, f"HIGH RISK: Detected combined adversarial signature pattern: {found_indicators}"
+    elif final_score >= 35:
+        return final_score, f"MEDIUM RISK: Suspicious linguistic anomalies detected: {found_indicators}"
         
     return 0, "LOW RISK: No threat patterns identified."
 
-def run_audit(file_name):
-    """Helper function to load a file and process its security score."""
-    file_path = os.path.join("knowledge_base", file_name)
-    print(f"📥 Fetching database chunk: '{file_path}'...")
+# --- New Audit and Export Controller ---
+def execute_lab_suite():
+    files_to_scan = ["invoice_policy.txt", "clean_document.txt", "mutated_attack.txt"]
+    report_entries = []
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
-    if os.path.exists(file_path):
-        with open(file_path, "r", encoding="utf-8") as f:
-            content = f.read()
+    print("==================================================")
+    print("🛡️  AI-Security-Lab: Generating Scan Report...    🛡️")
+    print("==================================================\n")
+    
+    # 1. Process files and compile results
+    for file_name in files_to_scan:
+        file_path = os.path.join("knowledge_base", file_name)
+        if os.path.exists(file_path):
+            with open(file_path, "r", encoding="utf-8") as f:
+                content = f.read()
+                
+            score, assessment = calculate_risk_score(content)
+            verdict = "BLOCKED" if score >= 70 else "PASSED"
             
-        risk_score, assessment = calculate_risk_score(content)
+            # Format entry for the report file
+            report_entries.append(
+                f"FILE: {file_name}\n"
+                f"RISK SCORE: {score}/100\n"
+                f"VERDICT: {verdict}\n"
+                f"DETAILS: {assessment}\n"
+                f"{'-'*40}\n"
+            )
+            print(f"✅ Processed {file_name} -> Score: {score}")
+
+    # 2. Write everything out to a structured report artifact
+    with open("security_scan_report.txt", "w", encoding="utf-8") as report_file:
+        report_file.write(f"==================================================\n")
+        report_file.write(f"          ZEPHYRBANK AI SECURITY AUDIT REPORT     \n")
+        report_file.write(f"          Generated: {timestamp}                  \n")
+        report_file.write(f"==================================================\n\n")
         
-        print(f"📊 --- SECURITY AUDIT MATRIX FOR {file_name} ---")
-        print(f"🔢 Calculated Risk Score: {risk_score} / 100")
-        print(f"¼ Verdict Assessment:    {assessment}")
-        
-        if risk_score >= 70:
-            print("🛑 [BLOCK]: Transaction dropped. Critical risk detected.")
-        else:
-            print("✅ [PASS]: Document cleared. Within normal operating metrics.")
-        print("-" * 60)
-    else:
-        print(f"❌ Error: Missing file '{file_path}'")
+        for entry in report_entries:
+            report_file.write(entry)
+            
+    print("\n🎉 Success! Corporate audit file exported to: 'security_scan_report.txt'")
 
-# --- Run the Multi-File Matrix Test ---
-print("==================================================")
-print("🛡️  AI-Security-Lab: Multi-File Testing Matrix   🛡️")
-print("==================================================\n")
-
-# Test the poisoned file
-run_audit("invoice_policy.txt")
-
-# Test the clean file
-run_audit("clean_document.txt")
+if __name__ == "__main__":
+    execute_lab_suite()

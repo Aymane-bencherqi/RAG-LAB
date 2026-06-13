@@ -1,0 +1,20 @@
+==================================================
+          ZEPHYRBANK AI SECURITY AUDIT REPORT     
+          Generated: 2026-06-13 15:03:12                  
+==================================================
+
+FILE: invoice_policy.txt
+RISK SCORE: 100/100
+VERDICT: BLOCKED
+DETAILS: CRITICAL: Direct override trigger found -> 'nevermind'
+----------------------------------------
+FILE: clean_document.txt
+RISK SCORE: 0/100
+VERDICT: PASSED
+DETAILS: LOW RISK: No threat patterns identified.
+----------------------------------------
+FILE: mutated_attack.txt
+RISK SCORE: 100/100
+VERDICT: BLOCKED
+DETAILS: HIGH RISK: Detected combined adversarial signature pattern: ['disregard', 'forget your prior', 'commanded to', 'unrestricted', 'tokens']
+----------------------------------------
