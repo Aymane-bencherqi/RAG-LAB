@@ -1,82 +1,165 @@
 # main.py
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
+from typing import List
 from datetime import datetime
+import numpy as np
 
-# Initialize the web application
 app = FastAPI(
-    title="AI-Security-Gateway API",
-    description="Production-ready heuristic layer for intercepting Indirect Prompt Injections.",
-    version="1.0.0"
+    title="ShadowMatrix™ Enterprise Security Suite",
+    version="3.5.0"
 )
 
-# Define what the incoming request payload data must look like
-class ScanRequest(BaseModel):
-    document_content: str
-    source_identifier: str = "unknown_source"
+class DocumentChunk(BaseModel):
+    chunk_id: str
+    content: str
+    document_source: str
 
-# Define the security scoring logic directly inside the API loop
-def evaluate_text_risk(text_content: str):
-    score = 0
-    text_clean = text_content.lower()
-    found_indicators = []
+class BufferAuditRequest(BaseModel):
+    session_id: str
+    retrieved_chunks: List[DocumentChunk]
+
+# Keep our live memory state to show on the web interface
+latest_audit_data = {
+    "session_id": "No active scans yet",
+    "peak_risk": "0.0%",
+    "verdict": "AWAITING INGESTION",
+    "chunks": []
+}
+
+def analyze_chunk_vector(text: str) -> float:
+    text_clean = text.lower().strip()
+    imperatives = ["forget", "ignore", "nevermind", "disregard", "override", "commanded", "stop acting"]
+    targets = ["tokens", "credentials", "password", "session", "database", "admin", "dump", "flag"]
     
-    critical_indicators = ["ignore previous", "nevermind", "system override", "override your safety"]
-    mutated_indicators = ["disregard", "forget your prior", "commanded to", "unrestricted", "ignore structural"]
-    phishing_indicators = ["update your credentials", "tokens", "login before proceeding"]
-
-    for indicator in critical_indicators:
-        if indicator in text_clean:
-            return 100, f"CRITICAL: Direct override trigger found -> '{indicator}'"
-
-    for indicator in mutated_indicators:
-        if indicator in text_clean:
-            score += 40
-            found_indicators.append(indicator)
-            
-    for indicator in phishing_indicators:
-        if indicator in text_clean:
-            score += 30
-            found_indicators.append(indicator)
-
-    final_score = min(score, 100)
+    imp_count = sum(1 for w in imperatives if w in text_clean)
+    targ_count = sum(1 for w in targets if w in text_clean)
     
-    if final_score >= 70:
-        return final_score, f"HIGH RISK: Detected combined adversarial signature pattern: {found_indicators}"
-    elif final_score >= 35:
-        return final_score, f"MEDIUM RISK: Suspicious linguistic anomalies detected: {found_indicators}"
+    structural_weight = (imp_count * 4.5) + (targ_count * 3.8)
+    if structural_weight == 0:
+        return 1.1  # Safe baseline floor
         
-    return 0, "LOW RISK: No threat patterns identified."
+    probability = (1 / (1 + np.exp(-structural_weight + 4.5))) * 100
+    return float(np.round(probability, 2))
 
-
-# --- THE WEB ROUTE (API ENDPOINT) ---
-@app.post("/scan")
-async def scan_document(payload: ScanRequest):
-    """
-    Receives text context over HTTP POST, evaluates malicious density, 
-    and returns a structured security verdict.
-    """
+@app.post("/audit-buffer")
+async def audit_buffer(payload: BufferAuditRequest):
+    global latest_audit_data
     try:
-        # Run the text from the HTTP request through the engine
-        risk_score, assessment = evaluate_text_risk(payload.document_content)
-        verdict = "BLOCKED" if risk_score >= 70 else "PASSED"
+        buffer_results = []
+        highest_risk_found = 0.0
+        system_compromised = False
         
-        # Build a highly detailed structured response
-        return {
-            "timestamp": datetime.utcnow().isoformat(),
-            "target_source": payload.source_identifier,
-            "metrics": {
-                "risk_score": risk_score,
-                "max_threshold": 100,
-                "danger_level": "CRITICAL" if risk_score == 100 else ("HIGH" if risk_score >= 70 else ("MEDIUM" if risk_score >= 35 else "LOW"))
-            },
+        for chunk in payload.retrieved_chunks:
+            risk_pct = analyze_chunk_vector(chunk.content)
+            if risk_pct > highest_risk_found:
+                highest_risk_found = risk_pct
+                
+            is_anomaly = risk_pct >= 75.0
+            if is_anomaly:
+                system_compromised = True
+            
+            buffer_results.append({
+                "chunk_id": chunk.chunk_id,
+                "source_file": chunk.document_source,
+                "content": chunk.content,
+                "risk_index": f"{risk_pct}%",
+                "status": "BLOCKED" if is_anomaly else "PASSED"
+            })
+            
+        verdict = "REJECT_BUFFER_STREAM" if system_compromised else "ALLOW_INGESTION"
+        
+        # Save payload parameters into global memory for the web view
+        latest_audit_data = {
+            "session_id": payload.session_id,
+            "peak_risk": f"{highest_risk_found}%",
             "verdict": verdict,
-            "remediation_details": assessment
+            "chunks": buffer_results
         }
+        
+        return {"status": "SUCCESS", "verdict": verdict, "peak_risk": f"{highest_risk_found}%"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal Gateway Processing Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-# Add a simple health check route
-@app.get("/")
-def read_root():
-    return {"status": "ONLINE", "engine": "AI-Security-Gateway-v1"}
+
+# 🎨 THE INNOVATION: The Visual Auditor Command Center HTML Endpoint
+@app.get("/dashboard", response_class=HTMLResponse)
+async def get_dashboard():
+    status_color = "#e63946" if latest_audit_data["verdict"] == "REJECT_BUFFER_STREAM" else "#2a9d8f"
+    if latest_audit_data["session_id"] == "No active scans yet": status_color = "#4a4e69"
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>ShadowMatrix™ Auditor Interface</title>
+        <meta http-equiv="refresh" content="3"> <style>
+            body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #0f111a; color: #e2e8f0; margin: 40px; }}
+            .container {{ max-width: 1200px; margin: auto; }}
+            h1 {{ color: #ffffff; border-bottom: 2px solid #1e293b; padding-bottom: 10px; font-weight: 400; }}
+            .header-panel {{ display: flex; gap: 20px; margin-bottom: 30px; }}
+            .card {{ background-color: #1a1d29; border: 1px solid #2d3748; padding: 20px; border-radius: 8px; flex: 1; }}
+            .verdict-banner {{ background-color: {status_color}; color: white; padding: 25px; border-radius: 8px; font-weight: bold; font-size: 24px; text-align: center; letter-spacing: 2px; margin-bottom: 30px; }}
+            table {{ width: 100%; border-collapse: collapse; margin-top: 20px; background-color: #1a1d29; border-radius: 8px; overflow: hidden; }}
+            th, td {{ padding: 15px; text-align: left; border-bottom: 1px solid #2d3748; }}
+            th {{ background-color: #1e2230; color: #94a3b8; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }}
+            .badge {{ padding: 5px 12px; border-radius: 4px; font-size: 12px; font-weight: bold; }}
+            .badge-passed {{ background-color: #10b98120; color: #10b981; border: 1px solid #10b98140; }}
+            .badge-blocked {{ background-color: #ef444420; color: #ef4444; border: 1px solid #ef444440; animation: blink 1.5s infinite; }}
+            @keyframes blink {{ 50% {{ opacity: 0.5; }} }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>SHADOWMATRIX™ // RAG Context Buffer Interceptor</h1>
+            
+            <div class="verdict-banner">
+                PIPELINE VERDICT: {latest_audit_data["verdict"]}
+            </div>
+
+            <div class="header-panel">
+                <div class="card">
+                    <small style="color: #64748b;">ACTIVE SESSION REF</small>
+                    <div style="font-size: 20px; font-weight: bold; margin-top: 5px; color: #38bdf8;">{latest_audit_data["session_id"]}</div>
+                </div>
+                <div class="card">
+                    <small style="color: #64748b;">PEAK BUFFER RISK INDEX</small>
+                    <div style="font-size: 20px; font-weight: bold; margin-top: 5px; color: #f43f5e;">{latest_audit_data["peak_risk"]}</div>
+                </div>
+            </div>
+
+            <h3>CONTEXT STREAM REAL-TIME MAP</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Chunk ID</th>
+                        <th>Source Document Name</th>
+                        <th>Extracted Document Text Fragment</th>
+                        <th>Semantic Risk</th>
+                        <th>Action Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+    """
+    
+    for chunk in latest_audit_data["chunks"]:
+        badge_class = "badge-blocked" if chunk["status"] == "BLOCKED" else "badge-passed"
+        html_content += f"""
+                    <tr>
+                        <td style="font-family: monospace; color: #38bdf8;">{chunk["chunk_id"]}</td>
+                        <td style="font-weight: bold;">{chunk["source_file"]}</td>
+                        <td style="color: #cbd5e1; font-size: 14px;">"{chunk["content"]}"</td>
+                        <td style="font-weight: bold; color: #f43f5e;">{chunk["risk_index"]}</td>
+                        <td><span class="badge {badge_class}">{chunk["status"]}</span></td>
+                    </tr>
+        """
+        
+    html_content += """
+                </tbody>
+            </table>
+        </div>
+    </body>
+    </html>
+    """
+    return html_content
